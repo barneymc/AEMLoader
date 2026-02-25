@@ -2,11 +2,21 @@
 
 ## Overview
 
-A Python-based client to authenticate with Adobe Experience Manager (AEM) as a Cloud Service
+A client to authenticate with Adobe Experience Manager (AEM) as a Cloud Service
 using OAuth 2.0 Client Credentials, and upload PDF files (with metadata) to AEM Assets.
-The client runs as a **standalone synchronous Python 3.12 script on a server**.
-Ignition (Inductive Automation) triggers it via a shell/system command call — this avoids
-all constraints of Ignition's Jython 2.7 scripting engine (no asyncio, limited package support).
+
+Two parallel implementations are provided in this repository:
+
+| | Standalone (root folder) | Ignition Native (`IgnitionVersion/`) |
+|---|---|---|
+| Runtime | CPython 3.12 — external process | Jython 2.7 — inside Ignition 8.1 |
+| Trigger | Windows Task Scheduler or `system.util.execute()` | Gateway Timer Event Script |
+| Config | `.env` file | Ignition Tags |
+| HTTP client | `requests` library | `system.net.*` + Java `HttpURLConnection` |
+| Token cache | `pyodbc` | `system.db.*` — named DB connection |
+| Python install needed | Yes | No |
+
+The requirements below describe both versions. Where behaviour differs, it is noted explicitly.
 
 ---
 
@@ -14,14 +24,20 @@ all constraints of Ignition's Jython 2.7 scripting engine (no asyncio, limited p
 
 | Item | Detail |
 |---|---|
-| Host Platform | Standalone Python 3.12 script on a server, triggered by Inductive Automation Ignition via `system.util.execute()` or equivalent shell call |
-| Ignition Role | Ignition acts as the orchestrator/scheduler only — it does not run the Python code directly |
 | Network Position | Corporate DMZ — accesses AEM Cloud Service externally over the internet |
 | AEM Target | AEM as a Cloud Service (AEMaaCS) — Production environment only |
+| Ignition Version | Inductive Automation Ignition 8.1.x |
 
-> **Note on Jython:** Ignition's built-in scripting engine uses Jython 2.7, which cannot
-> run `asyncio`, and many modern pip packages are incompatible with it. The decision to
-> run this client as an external CPython 3.12 process eliminates all of these constraints.
+### 1.1 Standalone Version (root folder)
+- Runs as a CPython 3.12 process on the same Windows server as Ignition
+- Ignition triggers it via `system.util.execute()` or Windows Task Scheduler
+- Ignition acts as orchestrator only — it does not run the Python code directly
+
+### 1.2 Ignition Native Version (`IgnitionVersion/`)
+- Runs entirely inside Ignition 8.1 as a Gateway Timer Event Script
+- Uses Jython 2.7 — no external Python installation required
+- Project Library scripts (`aem_auth`, `aem_client`) are registered in Ignition Designer
+- Configuration stored in Ignition Tags rather than a `.env` file
 
 ---
 
@@ -143,6 +159,8 @@ Ignition Gateway Script / Timer
 ```
 
 ### 5.4 Script Structure
+
+**Standalone version (root folder):**
 ```
 aem-client/
 ├── upload_asset.py     ← entry point: parse args, orchestrate upload
@@ -150,12 +168,21 @@ aem-client/
 ├── aem_client.py       ← AEM HTTP ops: CSRF fetch, upload PDF, set metadata
 ├── db.py               ← MS SQL token persistence (pyodbc)
 ├── config.py           ← load & validate .env
-├── mock.py             ← mock responses for IMS and AEM endpoints
+├── aem_mock.py         ← mock responses for IMS and AEM endpoints
 ├── sample/
 │   └── sample.pdf      ← sample PDF for local development
 ├── .env                ← configuration (do not commit to source control)
 ├── .env.example        ← template with placeholder values
 └── requirements.txt    ← pip dependencies
+```
+
+**Ignition native version (`IgnitionVersion/`):**
+```
+IgnitionVersion/
+├── aem_auth.py              ← Project Library script: token management
+├── aem_client.py            ← Project Library script: CSRF fetch + PDF upload
+├── gateway_timer_script.py  ← Gateway Timer Event Script (entry point)
+└── README.md                ← Ignition-specific setup instructions
 ```
 
 ### 5.5 CLI Interface
@@ -262,4 +289,4 @@ pyodbc>=5.1
 
 ---
 
-*Document version: 0.2 — 2026-02-25*
+*Document version: 0.3 — 2026-02-25*
