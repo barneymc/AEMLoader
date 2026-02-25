@@ -43,29 +43,45 @@ Windows Server (DMZ)
 This client uses the **Client Credentials** grant — a fully automated, server-side OAuth flow
 with no browser or user interaction required.
 
-```
-                    ┌─────────────────────┐
-                    │   Adobe IMS          │
-                    │  (Identity Server)   │
-                    └─────────────────────┘
-                              ▲
-  1. POST /ims/token/v3       │   2. Returns access_token
-     client_id                │      + expires_in
-     client_secret            │
-     grant_type=client_creds  │
-                              │
-                    ┌─────────────────────┐
-                    │   This Script        │
-                    │   (DMZ Server)       │
-                    └─────────────────────┘
-                              │
-  3. POST /api/assets/...     │
-     Authorization: Bearer    │
-     CSRF-Token: <token>      ▼
-                    ┌─────────────────────┐
-                    │   AEM Cloud          │
-                    │   (Assets DAM)       │
-                    └─────────────────────┘
+```mermaid
+flowchart TD
+    subgraph DMZ["DMZ Server (Windows)"]
+        subgraph Standalone["Option A — Standalone (CPython 3.12)"]
+            UA["upload_asset.py\n(entry point)"]
+            AU["auth.py\nget_valid_token()"]
+            DB["db.py\naem_token_cache table"]
+            AC["aem_client.py\nupload_pdf()"]
+            MK["aem_mock.py\n(mock mode only)"]
+        end
+        subgraph Ignition["Option B — Ignition Native (Jython 2.7)"]
+            GT["gateway_timer_script.py\n(Gateway Timer)"]
+            AA["aem_auth.py\nget_valid_token()"]
+            IGDB["system.db.*\naem_token_cache table"]
+            IG["aem_client.py\nupload_pdf()"]
+        end
+    end
+
+    subgraph Adobe["Adobe (External)"]
+        IMS["Adobe IMS\nPOST /ims/token/v3\naccess_token + expires_in"]
+        CSRF["AEM Cloud\nGET /libs/granite/csrf/token.json"]
+        AEM["AEM Assets DAM\nPOST /api/assets/pdf-uploads/file.pdf\nAuthorization: Bearer token\nCSRF-Token: token"]
+    end
+
+    UA -->|"1. get token"| AU
+    AU <-->|"2. cache check\nread / write"| DB
+    AU -->|"3. POST client_id\nclient_secret\ngrant_type"| IMS
+    IMS -->|"4. access_token"| AU
+    AU -->|"mock token\n(no real calls)"| MK
+    UA -->|"5. upload"| AC
+    AC -->|"6. fetch CSRF"| CSRF
+    AC -->|"7. upload PDF\n+ title metadata"| AEM
+
+    GT -->|"1. get token"| AA
+    AA <-->|"2. cache check"| IGDB
+    AA -->|"3. POST token request"| IMS
+    GT -->|"4. upload"| IG
+    IG -->|"5. fetch CSRF"| CSRF
+    IG -->|"6. upload PDF\nJava HttpURLConnection"| AEM
 ```
 
 **Token caching:** The access token is stored in MS SQL Server and reused until it expires,
