@@ -51,6 +51,7 @@ Items are grouped by theme and ordered by priority within each section.
 | Batch uploads | Currently the script handles one PDF per invocation. A `--folder` argument to process a directory of PDFs in a single run would be a natural and low-effort next step. |
 | Multiple environments | Support dev / stage / prod via named env files (`.env.prod`, `.env.stage`) selected with a `--env` flag, rather than manually swapping `.env` content. |
 | Queue-based processing | If upload volume grows significantly, feeding from a message queue (Azure Service Bus, MSMQ) decouples Ignition from the upload process entirely and provides built-in retry, ordering, and dead-lettering. |
+| AEM Direct Binary Upload API | AEM as a Cloud Service offers a modern 3-step upload API that bypasses AEM's Java layer entirely, uploading binary content directly to the underlying Azure Blob / S3 store via a presigned URL. More complex than the current multipart POST approach (initiate → PUT to cloud storage → complete) but significantly faster for large files and high-throughput pipelines. Worth adopting if upload volume or file size grows materially. See [Adobe documentation](https://experienceleague.adobe.com/en/docs/experience-manager-cloud-service/content/assets/admin/mac-api-assets). |
 
 ---
 
@@ -85,7 +86,7 @@ Items are grouped by theme and ordered by priority within each section.
 | Security — vault, encrypted token, least privilege, audit log | High | Prevents credential exposure and satisfies corporate security policy — a blocker for production sign-off |
 | Reliability — retry/backoff, failed upload queue, alerting | High | Stops silent failures and data loss; directly affects whether PDFs reliably reach AEM |
 | Observability — structured logging, Windows Event Log, metrics | Medium | Reduces time to diagnose issues; essential once the script runs unattended in production |
-| Scalability — batch uploads, multi-env, queue-based processing | Medium | Unlocks higher upload volumes and multi-environment workflows without rewriting core logic |
+| Scalability — batch uploads, multi-env, queue-based processing, Direct Binary Upload | Medium | Unlocks higher upload volumes and multi-environment workflows without rewriting core logic |
 | Code quality — unit tests, CI/CD, type hints | Medium | Reduces regression risk when making changes; lowers cost of onboarding new developers |
 | Infrastructure — proxy support, private AEM endpoint, Windows service | Low | Improves network security posture and process management; low urgency but worth planning early |
 
