@@ -1,10 +1,18 @@
 # AEM PDF Upload Client
 
-A lightweight Python client that authenticates with **Adobe Experience Manager (AEM) as a Cloud Service**
+A client that authenticates with **Adobe Experience Manager (AEM) as a Cloud Service**
 using OAuth 2.0 and uploads PDF files with metadata to the AEM Digital Asset Manager (DAM).
 
-Designed to run as a scheduled script on a Windows server in a corporate DMZ, triggered either by
-**Windows Task Scheduler** or directly from **Inductive Automation Ignition** via a system call.
+Two implementations are provided — choose based on your environment:
+
+| | Standalone (root folder) | Ignition Native ([IgnitionVersion/](IgnitionVersion/)) |
+|---|---|---|
+| Runtime | CPython 3.12 — external process | Jython 2.7 — inside Ignition 8.1 |
+| Trigger | Windows Task Scheduler or `system.util.execute()` | Gateway Timer Event Script |
+| Config | `.env` file | Ignition Tags |
+| HTTP client | `requests` library | `system.net.*` + Java `HttpURLConnection` |
+| Token cache | `pyodbc` | `system.db.*` — named DB connection |
+| Python install needed | Yes | No |
 
 ---
 
@@ -13,14 +21,19 @@ Designed to run as a scheduled script on a Windows server in a corporate DMZ, tr
 ```
 Windows Server (DMZ)
 │
-├── upload_asset.py --file document.pdf --title "My Doc"
-│       │
-│       ├─▶  Authenticates with Adobe IMS (OAuth 2.0 Client Credentials)
-│       ├─▶  Caches the access token in MS SQL Server (Ignition DB)
-│       ├─▶  Fetches a CSRF token from AEM
-│       └─▶  Uploads the PDF + metadata to AEM Assets DAM
+├── Option A — Standalone
+│   └── upload_asset.py --file document.pdf --title "My Doc"
+│           ├─▶  Authenticates with Adobe IMS (OAuth 2.0 Client Credentials)
+│           ├─▶  Caches the access token in MS SQL Server
+│           ├─▶  Fetches a CSRF token from AEM
+│           └─▶  Uploads the PDF + metadata to AEM Assets DAM
 │
-└── Triggered by: Windows Task Scheduler  or  Ignition system.util.execute()
+└── Option B — Ignition Native
+    └── gateway_timer_script.py  (runs inside Ignition 8.1)
+            ├─▶  Authenticates with Adobe IMS via system.net.httpPost()
+            ├─▶  Caches the token via system.db.*
+            ├─▶  Fetches a CSRF token from AEM
+            └─▶  Uploads the PDF via Java HttpURLConnection
 ```
 
 ---
@@ -58,10 +71,26 @@ with no browser or user interaction required.
 **Token caching:** The access token is stored in MS SQL Server and reused until it expires,
 avoiding a round-trip to Adobe IMS on every upload. It is refreshed automatically when expired.
 
+**The OAuth flow is identical in both implementations.** The endpoints, request format, and
+token lifecycle logic are the same — only the underlying API calls differ:
+
+| Step | Standalone | Ignition Native |
+|---|---|---|
+| Make the token POST | `requests.post()` | `system.net.httpPost()` |
+| Store the token | `pyodbc` → SQL | `system.db.runPrepUpdate()` → SQL |
+| Read cached token | `pyodbc` → SQL | `system.db.runQuery()` → SQL |
+| Check expiry | Python `datetime` | `system.date.toMillis()` |
+| Make the upload POST | `requests.post()` multipart | Java `HttpURLConnection` multipart |
+
+> [auth.py](auth.py) and [IgnitionVersion/aem_auth.py](IgnitionVersion/aem_auth.py) are direct
+> translations of each other — same logic, just different API calls. Any change to the OAuth
+> flow must be made in both files.
+
 ---
 
 ## Call Chain
 
+**Standalone:**
 ```
 upload_asset.py              ← entry point (run this)
     │
@@ -79,10 +108,27 @@ upload_asset.py              ← entry point (run this)
             └─▶ POST /api/assets/pdf-uploads/<file>  (upload PDF + title metadata)
 ```
 
+**Ignition Native:**
+```
+gateway_timer_script.py      ← Gateway Timer Event Script
+    │
+    ├─▶ aem_auth.get_valid_token()       ← Project Library script
+    │       │
+    │       ├─▶ system.db.runQuery()          (check SQL cache)
+    │       └─▶ system.net.httpPost()         (IMS call if missing/expired)
+    │               └─▶ system.db.runPrepUpdate()  (cache result)
+    │
+    └─▶ aem_client.upload_pdf()          ← Project Library script
+            │
+            ├─▶ system.net.httpGet()          (fetch CSRF token)
+            └─▶ Java HttpURLConnection        (multipart PDF upload)
+```
+
 ---
 
 ## Project Files
 
+### Standalone Version
 | File | Purpose |
 |---|---|
 | [upload_asset.py](upload_asset.py) | Entry point — parse CLI args and orchestrate the upload |
@@ -93,13 +139,26 @@ upload_asset.py              ← entry point (run this)
 | [aem_mock.py](aem_mock.py) | Hardcoded mock responses for local development |
 | [.env.example](.env.example) | Configuration template — copy to `.env` and fill in values |
 | [requirements.txt](requirements.txt) | Python dependencies |
-| [create_sample_pdf.py](create_sample_pdf.py) | Generates `sample/sample.pdf` for local testing (stdlib only) |
-| [deployment.md](deployment.md) | Step-by-step deployment guide for a DMZ Windows Server |
+| [create_sample_pdf.py](create_sample_pdf.py) | Generates `sample/sample.pdf` for local testing |
+
+### Ignition Native Version
+| File | Purpose |
+|---|---|
+| [IgnitionVersion/aem_auth.py](IgnitionVersion/aem_auth.py) | Project Library script — OAuth token management |
+| [IgnitionVersion/aem_client.py](IgnitionVersion/aem_client.py) | Project Library script — CSRF fetch and PDF upload |
+| [IgnitionVersion/gateway_timer_script.py](IgnitionVersion/gateway_timer_script.py) | Gateway Timer Event Script — entry point |
+| [IgnitionVersion/README.md](IgnitionVersion/README.md) | Ignition-specific setup instructions |
+
+### Documentation
+| File | Purpose |
+|---|---|
+| [deployment.md](deployment.md) | Step-by-step deployment guide for both options |
 | [requirements.md](requirements.md) | Full project requirements document |
+| [FutureWork.md](FutureWork.md) | Recommended enhancements for a corporate environment |
 
 ---
 
-## Quick Start (Mock Mode)
+## Quick Start (Mock Mode — Standalone)
 
 No AEM account or credentials needed — mock mode intercepts all HTTP calls.
 
@@ -130,7 +189,7 @@ Done. Asset available at: /content/dam/pdf-uploads/sample.pdf
 
 ## Configuration
 
-Copy [.env.example](.env.example) to `.env` and fill in your values:
+### Standalone — copy [.env.example](.env.example) to `.env`:
 
 ```dotenv
 AEM_TOKEN_URL=https://ims-na1.adobelogin.com/ims/token/v3
@@ -151,9 +210,22 @@ AEM_MOCK_MODE=false   # set true for local development
 
 > `.env` is excluded from source control via [.gitignore](.gitignore) — never commit it.
 
+### Ignition Native — create these String tags in the Tag Browser:
+
+```
+[default]AEM/Config/TokenURL       → https://ims-na1.adobelogin.com/ims/token/v3
+[default]AEM/Config/ClientID       → your-client-id
+[default]AEM/Config/ClientSecret   → your-client-secret  ← apply Tag Security
+[default]AEM/Config/Scope          → openid,AdobeID,read_organizations
+[default]AEM/Config/UploadBaseURL  → https://author-pXXXXX-eYYYYY.adobeaemcloud.com
+[default]AEM/Config/AssetsDamPath  → /api/assets/pdf-uploads
+[default]AEM/Upload/FilePath       → (set at runtime to trigger an upload)
+[default]AEM/Upload/Title          → (set at runtime)
+```
+
 ---
 
-## Dependencies
+## Dependencies (Standalone only)
 
 | Package | Version | Purpose |
 |---|---|---|
@@ -161,11 +233,12 @@ AEM_MOCK_MODE=false   # set true for local development
 | `python-dotenv` | >=1.0 | Load `.env` configuration |
 | `pyodbc` | >=5.1 | MS SQL Server token cache |
 
-Also required on the host machine: **ODBC Driver 17 for SQL Server** (Microsoft download).
+Also required: **ODBC Driver 17 for SQL Server** (Microsoft download).
+The Ignition Native version has no pip dependencies — it uses Ignition's built-in APIs.
 
 ---
 
 ## Deployment
 
-See [deployment.md](deployment.md) for full instructions including firewall rules,
-Python installation, and Windows Task Scheduler setup.
+See [deployment.md](deployment.md) for full instructions covering both options,
+including firewall rules, software prerequisites, and verification steps.
