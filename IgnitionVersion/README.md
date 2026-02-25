@@ -30,6 +30,36 @@ Python installation required.
 
 ---
 
+## Why Java HttpURLConnection Is Used for the Upload
+
+`system.net.httpPost()` is used wherever possible — but it only accepts `postData`
+as a **string**, which works fine for text-based calls:
+
+| Operation | API used | Reason |
+|---|---|---|
+| OAuth token POST ([aem_auth.py](aem_auth.py)) | `system.net.httpPost()` | Form-encoded text — a string is fine |
+| CSRF token GET ([aem_client.py](aem_client.py)) | `system.net.httpGet()` | Simple GET, no body |
+| PDF upload ([aem_client.py](aem_client.py)) | Java `HttpURLConnection` | Binary multipart — see below |
+
+A PDF upload requires **multipart/form-data** — binary file bytes mixed with text fields,
+separated by boundary markers:
+
+```
+--boundary
+Content-Disposition: form-data; name="file"; filename="doc.pdf"
+Content-Type: application/pdf
+
+<binary PDF bytes — cannot be represented as a string>
+--boundary--
+```
+
+`system.net.httpPost()` cannot carry raw binary content through its string `postData`
+parameter. Java's `HttpURLConnection` allows writing raw bytes directly to the output
+stream, making it the minimum necessary fallback — only the upload function uses it.
+Everything else uses standard Ignition APIs.
+
+---
+
 ## Setup Steps
 
 ### 1. Named Database Connection
