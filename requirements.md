@@ -56,19 +56,38 @@ Client Script  →  POST /ims/token/v3  →  Adobe IMS
 Client Script  →  POST /api/assets/...  →  AEM Cloud (Bearer token in header)
 ```
 
-### 2.3 Token Lifecycle
+### 2.3 Flow Comparison by Implementation
+
+The OAuth flow — the endpoints called, the request format, and the token lifecycle logic —
+is **identical in both versions**. The only difference is the underlying API used to make
+each HTTP call and interact with the database.
+
+| Step | Standalone (`auth.py`) | Ignition Native (`aem_auth.py`) |
+|---|---|---|
+| Make the token POST | `requests.post()` | `system.net.httpPost()` |
+| Store the token | `pyodbc` → SQL | `system.db.runPrepUpdate()` → SQL |
+| Read cached token | `pyodbc` → SQL | `system.db.runQuery()` → SQL |
+| Check expiry | Python `datetime` | `system.date.toMillis()` |
+| Make the upload POST | `requests.post()` multipart | Java `HttpURLConnection` multipart |
+
+> The logic in [auth.py](auth.py) and [IgnitionVersion/aem_auth.py](IgnitionVersion/aem_auth.py)
+> is a direct translation of each other — same conditions, same branching, just different API calls.
+> If the OAuth flow ever needs to change (e.g. a new scope, a different IMS endpoint), the same
+> change must be made in both files.
+
+### 2.4 Token Lifecycle
 - On startup: check MS SQL token cache table for a valid, non-expired token
 - If valid cached token exists: use it
 - If missing or expired: request a new token from Adobe IMS, store it in the cache
 - **Automatic token refresh** — re-acquire transparently when expired, no script restart needed
 - Token revocation is **out of scope** for this version
 
-### 2.4 Token Storage
+### 2.5 Token Storage
 - Tokens are persisted to an **on-premise MS SQL Server database** attached to the Ignition application
 - Only the token value and its expiry timestamp are stored — never credentials
 - Table: `aem_token_cache` (see Section 3.2)
 
-### 2.5 OAuth Scopes
+### 2.6 OAuth Scopes
 - The required scopes are defined by the AEM IMS service account configuration
 - A placeholder value `openid,AdobeID,read_organizations` is used for mocking
 - **Action required:** obtain the exact scope string from your AEM Cloud administrator
@@ -289,4 +308,4 @@ pyodbc>=5.1
 
 ---
 
-*Document version: 0.3 — 2026-02-25*
+*Document version: 0.4 — 2026-02-25*
