@@ -78,6 +78,19 @@ Items are grouped by theme and ordered by priority within each section.
 
 ---
 
+## Summary
+
+| Theme | Priority | Impact |
+|---|---|---|
+| Security — vault, encrypted token, least privilege, audit log | High | Prevents credential exposure and satisfies corporate security policy — a blocker for production sign-off |
+| Reliability — retry/backoff, failed upload queue, alerting | High | Stops silent failures and data loss; directly affects whether PDFs reliably reach AEM |
+| Observability — structured logging, Windows Event Log, metrics | Medium | Reduces time to diagnose issues; essential once the script runs unattended in production |
+| Scalability — batch uploads, multi-env, queue-based processing | Medium | Unlocks higher upload volumes and multi-environment workflows without rewriting core logic |
+| Code quality — unit tests, CI/CD, type hints | Medium | Reduces regression risk when making changes; lowers cost of onboarding new developers |
+| Infrastructure — proxy support, private AEM endpoint, Windows service | Low | Improves network security posture and process management; low urgency but worth planning early |
+
+---
+
 ## Recommended Implementation Order
 
 For a corporate environment, tackle these first:
