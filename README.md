@@ -69,23 +69,22 @@ flowchart TD
     IG -->|"9. multipart POST\nBearer token + CSRF-Token header"| AEM
 ```
 
-**Token caching:** The access token is stored in MS SQL Server and reused until it expires,
-avoiding a round-trip to Adobe IMS on every upload. It is refreshed automatically when expired.
+The numbered steps in the diagram correspond to these operations:
 
-**The OAuth flow is identical in both implementations.** The endpoints, request format, and
-token lifecycle logic are the same — only the underlying API calls differ:
-
-| Step | Standalone | Ignition Native |
+| Step | What happens | File responsible |
 |---|---|---|
-| Make the token POST | `requests.post()` | `system.net.httpPost()` |
-| Store the token | `pyodbc` → SQL | `system.db.runPrepUpdate()` → SQL |
-| Read cached token | `pyodbc` → SQL | `system.db.runQuery()` → SQL |
-| Check expiry | Python `datetime` | `system.date.toMillis()` |
-| Make the upload POST | `requests.post()` multipart | Java `HttpURLConnection` multipart |
+| 1 | Gateway Timer fires — requests a valid token | [gateway_timer_script.py](IgnitionVersion/gateway_timer_script.py) |
+| 2 | Check SQL cache for an existing, non-expired token | [aem_auth.py](IgnitionVersion/aem_auth.py) → `system.db.runQuery()` |
+| 3 | Cache miss or expired — proceed to fetch a new token | [aem_auth.py](IgnitionVersion/aem_auth.py) |
+| 4 | `POST /ims/token/v3` with `client_id`, `client_secret`, `grant_type=client_credentials` | [aem_auth.py](IgnitionVersion/aem_auth.py) → `system.net.httpPost()` |
+| 5 | Adobe IMS returns `access_token` + `expires_in` | Adobe IMS |
+| 6 | Token saved to SQL cache for reuse until expiry | [aem_auth.py](IgnitionVersion/aem_auth.py) → `system.db.runPrepUpdate()` |
+| 7 | Gateway Timer calls upload with the valid token | [gateway_timer_script.py](IgnitionVersion/gateway_timer_script.py) |
+| 8 | `GET /libs/granite/csrf/token.json` — AEM requires a CSRF token on all write operations | [aem_client.py](IgnitionVersion/aem_client.py) → `system.net.httpGet()` |
+| 9 | `POST /api/assets/…` — multipart upload of PDF binary + title metadata, with `Bearer` and `CSRF-Token` headers | [aem_client.py](IgnitionVersion/aem_client.py) → Java `HttpURLConnection` |
 
-> [auth.py](auth.py) and [IgnitionVersion/aem_auth.py](IgnitionVersion/aem_auth.py) are direct
-> translations of each other — same logic, just different API calls. Any change to the OAuth
-> flow must be made in both files.
+> **Steps 2–6 are skipped** on subsequent uploads if the cached token has not yet expired —
+> the script goes straight from step 1 to step 7, avoiding a round-trip to Adobe IMS.
 
 ---
 
